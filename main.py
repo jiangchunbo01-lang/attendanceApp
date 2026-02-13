@@ -10,7 +10,7 @@ from zhdate import ZhDate
 
 # --- 1. 数据库初始化 ---
 def init_db():
-    conn = sqlite3.connect("attendance_pro_v210_stable.db", check_same_thread=False)
+    conn = sqlite3.connect("attendance_pro_v230_named.db", check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute('CREATE TABLE IF NOT EXISTS workers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, daily_rate REAL)')
     cursor.execute('CREATE TABLE IF NOT EXISTS owners (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)')
@@ -38,7 +38,8 @@ def main(page: ft.Page):
         "is_lunar_mode": True,  
         "pick_target_wid": None,
         "pick_target_period": "am",
-        "add_mode": "worker"
+        "add_mode": "worker",
+        "current_manage_type": "worker"
     }
 
     # --- 2. 核心控件 ---
@@ -48,18 +49,15 @@ def main(page: ft.Page):
     btn_next = ft.IconButton(ft.Icons.ARROW_FORWARD, icon_size=30)
     col_records = ft.Column(spacing=15)
     
-    # 容器
     col_manage = ft.Column(spacing=10, tight=True, scroll=ft.ScrollMode.AUTO, height=400)
     col_report = ft.Column(spacing=10, tight=True, scroll=ft.ScrollMode.AUTO, height=400)
     col_detail = ft.Column(spacing=10, tight=True, scroll=ft.ScrollMode.AUTO, height=450)
     col_owners = ft.Column(spacing=10, tight=True, scroll=ft.ScrollMode.AUTO, height=400)
     
-    # 输入框
     in_name = ft.TextField(label="名称")
     in_rate = ft.TextField(label="日薪", keyboard_type="number")
     in_import = ft.TextField(label="数据区", multiline=True, min_lines=8, max_lines=12, text_size=14)
     
-    # 邮箱控件
     mail_server = ft.Dropdown(
         label="邮箱类型", 
         options=[
@@ -74,12 +72,9 @@ def main(page: ft.Page):
     mail_to = ft.TextField(label="接收备份的邮箱")
     switch_auto_backup = ft.Switch(label="每天启动自动备份", value=False)
     
-    # 确认弹窗提示文案
-    txt_confirm_msg = ft.Text("", size=16)
+    txt_confirm_msg = ft.Text("", size=18, weight="bold") # 加大字号
 
-    # --- 3. 稳健的辅助函数 (修复按钮失灵的关键) ---
-    
-    # 统一的关闭弹窗函数
+    # --- 3. 稳健的辅助函数 ---
     def close_dlg(dlg):
         dlg.open = False
         page.update()
@@ -89,16 +84,13 @@ def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
 
-    # --- 核心修复：统一确认弹窗逻辑 ---
-    # 每次调用都会重置按钮事件，防止事件冲突
+    # --- 核心：确认弹窗逻辑 ---
     def ask_confirm(message, on_yes_func):
         txt_confirm_msg.value = message
-        
         def on_yes_click(e):
-            on_yes_func() # 执行真正的业务逻辑
-            close_dlg(safe_dlg) # 关闭弹窗
+            on_yes_func() 
+            close_dlg(safe_dlg)
         
-        # 重新构建按钮，确保绑定的是最新的函数
         safe_dlg.actions = [
             ft.TextButton("取消", on_click=lambda e: close_dlg(safe_dlg)),
             ft.FilledButton("确定", on_click=on_yes_click)
@@ -116,7 +108,7 @@ def main(page: ft.Page):
     # --- 4. 邮件逻辑 ---
     def _send_mail_task(host, user, pwd, to_addr, is_auto=False):
         try:
-            local_conn = sqlite3.connect("attendance_pro_v210_stable.db")
+            local_conn = sqlite3.connect("attendance_pro_v230_named.db")
             local_cur = local_conn.cursor()
             data = {
                 'workers': local_cur.execute('SELECT * FROM workers').fetchall(),
@@ -129,12 +121,10 @@ def main(page: ft.Page):
             msg['To'] = formataddr(["管理员", to_addr])
             prefix = "【自动备份】" if is_auto else "【手动备份】"
             msg['Subject'] = f"{prefix} {date.today()} 数据"
-            
             server = smtplib.SMTP_SSL(host, 465)
             server.login(user, pwd)
             server.sendmail(user, [to_addr], msg.as_string())
             server.quit()
-            
             if is_auto:
                 local_cur.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", ("last_auto_date", date.today().strftime("%Y-%m-%d")))
                 local_conn.commit()
@@ -178,7 +168,6 @@ def main(page: ft.Page):
         cursor.execute("SELECT value FROM settings WHERE key='last_auto_date'")
         last = cursor.fetchone()
         if last and last[0] == date.today().strftime("%Y-%m-%d"): return 
-        
         settings = {}
         for k in ['host', 'user', 'pass', 'to']:
             cursor.execute("SELECT value FROM settings WHERE key=?", (k,))
@@ -195,7 +184,6 @@ def main(page: ft.Page):
             try: data = json.loads(raw)
             except: show_toast("格式错误", True); return
             if not isinstance(data, dict): show_toast("数据错乱", True); return
-
             cursor.execute("BEGIN TRANSACTION")
             try:
                 cursor.execute("DELETE FROM workers"); cursor.execute("DELETE FROM owners"); cursor.execute("DELETE FROM logs")
@@ -222,33 +210,22 @@ def main(page: ft.Page):
         in_import.label = "请长按 -> 粘贴"
         in_import.read_only = False
         import_dlg.title.value = "恢复数据"
-        import_dlg.actions = [
-            ft.TextButton("取消", on_click=lambda _: close_dlg(import_dlg)),
-            ft.FilledButton("确定覆盖", on_click=do_import_data)
-        ]
+        import_dlg.actions = [ft.TextButton("取消", on_click=lambda _: close_dlg(import_dlg)), ft.FilledButton("确定覆盖", on_click=do_import_data)]
         import_dlg.open = True; page.update()
 
-    # --- 6. 弹窗定义 ---
-    # 注意：所有 actions 都在具体调用时动态生成或使用 close_dlg 统一管理
+    # --- 6. 弹窗对象 ---
     add_dlg = ft.AlertDialog(title=ft.Text("新增资料"), content=ft.Column([in_name, in_rate], tight=True))
     manage_dlg = ft.AlertDialog(title=ft.Text("管理名单"), content=col_manage, actions=[ft.TextButton("关闭", on_click=lambda _: close_dlg(manage_dlg))])
     report_dlg = ft.AlertDialog(title=ft.Text("报表"))
     detail_dlg = ft.AlertDialog(title=ft.Text("明细"), content=col_detail)
     picker_dlg = ft.AlertDialog(title=ft.Text("选业主"), content=col_owners)
     import_dlg = ft.AlertDialog(title=ft.Text("数据"), content=in_import)
-    
-    # 安全确认弹窗 (内容动态变化)
     safe_dlg = ft.AlertDialog(title=ft.Text("确认操作"), content=txt_confirm_msg)
-    
-    email_dlg = ft.AlertDialog(
-        title=ft.Text("邮箱配置"),
-        content=ft.Column([ft.Text("需SMTP服务+授权码", size=12, color="grey"), mail_server, mail_user, mail_pass, mail_to, ft.Divider(), switch_auto_backup], tight=True, width=300),
-        actions=[ft.TextButton("取消", on_click=lambda _: close_dlg(email_dlg)), ft.FilledButton("保存", on_click=save_mail_settings)]
-    )
+    email_dlg = ft.AlertDialog(title=ft.Text("邮箱配置"), content=ft.Column([ft.Text("需SMTP服务+授权码", size=12, color="grey"), mail_server, mail_user, mail_pass, mail_to, ft.Divider(), switch_auto_backup], tight=True, width=300), actions=[ft.TextButton("取消", on_click=lambda _: close_dlg(email_dlg)), ft.FilledButton("保存", on_click=save_mail_settings)])
 
     page.overlay.extend([add_dlg, manage_dlg, report_dlg, detail_dlg, picker_dlg, import_dlg, safe_dlg, email_dlg])
 
-    # --- 7. 业务逻辑 (修复 Toggle 和 Delete) ---
+    # --- 7. 业务逻辑 ---
     def get_logs_data():
         ref = state["report_month"]
         if state["is_lunar_mode"]:
@@ -330,7 +307,6 @@ def main(page: ft.Page):
         else:
             btn_next.disabled, btn_next.icon_color = False, "black"
             btn_next.on_click = lambda _: (state.update(view_date=state["view_date"]+timedelta(days=1)), refresh_ui())
-        
         col_records.controls.clear()
         cursor.execute("SELECT id, name, daily_rate FROM workers")
         for wid, name, rate in cursor.fetchall():
@@ -339,18 +315,14 @@ def main(page: ft.Page):
             cursor.execute("SELECT name FROM owners WHERE id=?", (ao,)); r1 = cursor.fetchone()
             cursor.execute("SELECT name FROM owners WHERE id=?", (po,)); r2 = cursor.fetchone()
             
-            # 使用新的 ask_confirm 逻辑
             def make_toggle(i, n, k, c_log):
                 def h(e):
                     if (k=='am' and c_log[0] is None) or (k=='pm' and c_log[1] is None): show_toast("先选业主！", True); return
-                    
                     def commit():
                         cursor.execute("INSERT OR REPLACE INTO logs VALUES (?,?,?,?,?,?)", (d_str, i, c_log[0], c_log[1], not c_log[2] if k=='am' else c_log[2], not c_log[3] if k=='pm' else c_log[3]))
                         db_conn.commit(); refresh_ui()
-                    
                     ask_confirm(f"修改 {n} 的出勤？", commit)
                 return h
-                
             col_records.controls.append(ft.Container(content=ft.Column([ft.Text(name, size=32, weight="bold"), ft.Row([ft.Column([ft.TextButton(r1[0] if r1 else "选上业主 >", on_click=lambda _, i=wid: open_owner_picker_ui(i, "am")), ft.Container(content=ft.Text("上午来了" if am else "上午没来", weight="bold"), alignment=ft.Alignment(0,0), width=145, height=75, border_radius=10, bgcolor="green400" if am else "grey300", on_click=make_toggle(wid, name, 'am', (ao, po, am, pm)))], horizontal_alignment="center"), ft.Column([ft.TextButton(r2[0] if r2 else "选下业主 >", on_click=lambda _, i=wid: open_owner_picker_ui(i, "pm")), ft.Container(content=ft.Text("下午来了" if pm else "下午没来", weight="bold"), alignment=ft.Alignment(0,0), width=145, height=75, border_radius=10, bgcolor="green400" if pm else "grey300", on_click=make_toggle(wid, name, 'pm', (ao, po, am, pm)))], horizontal_alignment="center")], alignment="center"), ft.Text(f"今日工资：{(((0.5 if am else 0)+(0.5 if pm else 0))*rate):g} 元", size=20, weight="bold", color="blue700"), ft.Divider()]), padding=5))
         page.update()
 
@@ -366,7 +338,30 @@ def main(page: ft.Page):
             col_owners.controls.append(ft.ListTile(title=ft.Text(onm, size=24, weight="bold"), on_click=set_o))
         picker_dlg.open = True; page.update()
 
-    # --- 8. 菜单与删除逻辑 ---
+    # --- 9. 独立列表渲染 (核心修复) ---
+    def refresh_manage_list_view(m_type):
+        col_manage.controls.clear()
+        table = "workers" if m_type == "worker" else "owners"
+        rows = cursor.execute(f"SELECT id, name FROM {table}").fetchall()
+        for i, n in rows:
+            # 闭包传递 id 和 name
+            def create_delete_action(target_id, target_name):
+                def open_safe_dlg(e):
+                    def commit_delete():
+                        cursor.execute(f"DELETE FROM {table} WHERE id=?", (target_id,))
+                        db_conn.commit()
+                        show_toast("已删除")
+                        # 删除后立即刷新列表，保持管理窗口开启
+                        refresh_manage_list_view(m_type)
+                    ask_confirm(f"确定删除【{target_name}】吗？记录会消失", commit_delete)
+                return open_safe_dlg
+            
+            col_manage.controls.append(ft.Row([
+                ft.Text(n, size=24, weight="bold"), 
+                ft.IconButton(ft.Icons.DELETE, icon_color="red", on_click=create_delete_action(i, n))
+            ], alignment="spaceBetween"))
+        page.update()
+
     def on_add_confirm(e):
         if not in_name.value: return
         if state["add_mode"]=="worker": cursor.execute("INSERT INTO workers (name, daily_rate) VALUES (?,?)", (in_name.value, float(in_rate.value or 0)))
@@ -375,20 +370,11 @@ def main(page: ft.Page):
     add_dlg.actions = [ft.TextButton("取消", on_click=lambda _: close_dlg(add_dlg)), ft.FilledButton("确定", on_click=on_add_confirm)]
 
     def open_manage_list(m):
-        col_manage.controls.clear(); table = "workers" if m=="worker" else "owners"
-        rows = cursor.execute(f"SELECT id, name FROM {table}").fetchall()
-        for i, n in rows:
-            def create_delete_action(target_id):
-                def open_safe_dlg(e):
-                    def commit_delete():
-                        cursor.execute(f"DELETE FROM {table} WHERE id=?", (target_id,))
-                        db_conn.commit(); close_dlg(manage_dlg); refresh_ui(); show_toast("已删除")
-                    ask_confirm("确定删除？记录会消失", commit_delete)
-                return open_safe_dlg
-            col_manage.controls.append(ft.Row([ft.Text(n, size=24, weight="bold"), ft.IconButton(ft.Icons.DELETE, icon_color="red", on_click=create_delete_action(i))], alignment="spaceBetween"))
+        # 记录当前在管理谁，然后刷新列表
+        refresh_manage_list_view(m)
         manage_dlg.open = True; page.update()
 
-    # --- 9. 主UI ---
+    # --- 10. 主入口 ---
     page.appbar = ft.AppBar(title=ft.Text("极简考勤"), bgcolor="blue50", actions=[
         ft.IconButton(ft.Icons.ASSESSMENT, on_click=lambda _: open_report_ui("worker"), icon_color="green", icon_size=35),
         ft.PopupMenuButton(items=[
