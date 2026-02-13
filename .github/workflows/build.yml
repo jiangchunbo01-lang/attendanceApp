@@ -1,6 +1,6 @@
 name: Build Flet APK
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 允许你手动点击按钮打包
 
 jobs:
   build:
@@ -16,12 +16,13 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install flet zhdate
+          # 确保云端环境里装好了 flet 和你的考勤库
+          pip install flet flet-cli zhdate
 
       - name: Build APK
         run: |
-          # 加上 --yes 解决自动确认问题
-          flet build apk --product "极简考勤" --yes
+          # 核心修正：自动回答所有确认问题
+          echo "y" | flet build apk --product "极简考勤" --yes
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
