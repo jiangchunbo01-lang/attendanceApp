@@ -1,6 +1,6 @@
 name: Build Flet APK
 on:
-  workflow_dispatch: # 支持手动点击按钮开始打包
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,19 +14,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - name: Install Flet
+      - name: Install Dependencies
         run: |
-          pip install flet
+          pip install flet zhdate
 
       - name: Build APK
         run: |
-          # 这一步是核心：自动打包
-          flet build apk --product "极简考勤"
+          # 加上 --yes 解决自动确认问题
+          flet build apk --product "极简考勤" --yes
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
