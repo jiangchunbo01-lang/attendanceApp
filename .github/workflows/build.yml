@@ -1,0 +1,35 @@
+name: Build Flet APK
+on:
+  workflow_dispatch: # 支持手动点击按钮开始打包
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install Flet
+        run: |
+          pip install flet
+
+      - name: Build APK
+        run: |
+          # 这一步是核心：自动打包
+          flet build apk --product "极简考勤"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: attendance-app-apk
+          path: build/apk/*.apk
